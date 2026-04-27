@@ -31,11 +31,11 @@ app = FastAPI(title="MoToMo POC Backend", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://*.lovable.app",
-        "https://*.lovableproject.com",
-        "http://localhost:3000",
-        "http://localhost:5173",
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
     ],
     allow_credentials=True,
     allow_methods=["*"],
