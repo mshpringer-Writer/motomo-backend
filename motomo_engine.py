@@ -629,22 +629,6 @@ def build_ltx_prompt(
     # Compute performance from SSV × NSV × score_gap
     perf = compute_performance_spec(action, ssv, nsv, score_gap)
 
-# DEBUG — remove after fix
-debug_block = (
-    f"[PERFORMANCE DEBUG]\n"
-    f"action={action}\n"
-    f"loyalty={ssv.loyalty:.2f} shame={ssv.shame:.2f} RT={ssv.RT:.2f}\n"
-    f"score_gap={score_gap:.3f} nsv.P={nsv.P:.3f} nsv.R={nsv.R:.3f}\n"
-    f"performance_pressure={perf['performance_pressure']}\n"
-    f"band={perf['band']}\n"
-    f"resistance_note={perf['resistance_note']}\n"
-)
-
-    # NSV context
-    E_desc = "high emotional charge" if nsv.E > 0.3 else "suppressed emotion" if nsv.E < -0.1 else "controlled tension"
-    P_desc = "heavy internal cost visible" if nsv.P > 0.6 else "moderate restraint" if nsv.P > 0.3 else "clear engagement"
-    R_desc = "risk fully activated" if nsv.R > 0.7 else "moderate alertness" if nsv.R > 0.4 else "relaxed"
-
     if signal.wife_message_active:
         nsv_context = (
             f"[wife_message: Active — relational_commitment_salience=0.91] "
