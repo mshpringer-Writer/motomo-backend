@@ -305,3 +305,142 @@ async def generate(req: GenerateRequest):
     return {"character": req.character_name, "beat": req.beat,
             "scenario_a": a, "scenario_b": b,
             "narrative_shift": f"{a['action']} → {b['action']}"}
+# ─── Override Endpoint ────────────────────────────────────────────────────────
+
+class OverrideRequest(BaseModel):
+    character_name:      str   = "Uri — The Wounded Loyalist"
+    beat:                str   = "Beat 7 — Bar, Late Evening"
+    scene_description:   str   = "Maya invites him home"
+    ssv:                 SSVInput
+    filter_name:         str   = "DISSOLVE"
+    wife_message_active: bool  = False
+    chosen_action:       str
+    top_action:          str
+    top_score:           float
+    chosen_score:        float
+
+
+@app.post("/compute-override")
+def compute_override(req: OverrideRequest):
+    score_gap = round(req.top_score - req.chosen_score, 3)
+
+    if score_gap > 0.40:
+        level          = "red"
+        forced_filter  = "SIGNAL"
+        warning        = (
+            f"This action exceeds the character's computed threshold by {score_gap:.3f}. "
+            f"Engine recommended '{req.top_action}' ({req.top_score:.3f}). "
+            f"Choosing '{req.chosen_action}' ({req.chosen_score:.3f}) is a character rupture."
+        )
+        cinematic_note = (
+            "CHARACTER RUPTURE — action violates internal logic. "
+            "Cinematic treatment: SIGNAL filter forced. "
+            "High contrast revelation light. Held threshold frame. "
+            "Delayed reframe on the moment of decision."
+        )
+    elif score_gap > 0.20:
+        level          = "yellow"
+        forced_filter  = req.filter_name.upper()
+        warning        = (
+            f"Borderline action. Gap: {score_gap:.3f}. "
+            f"Engine preferred '{req.top_action}' ({req.top_score:.3f}). "
+            f"'{req.chosen_action}' ({req.chosen_score:.3f}) is plausible with intention."
+        )
+        cinematic_note = (
+            "BORDERLINE ACTION — use with dramatic intention. "
+            "Slightly harder contrast, longer hold post-action."
+        )
+    else:
+        level          = "green"
+        forced_filter  = req.filter_name.upper()
+        warning        = (
+            f"Action within acceptable range. Gap: {score_gap:.3f}. "
+            f"Override is minimal — character logic holds."
+        )
+        cinematic_note = "Action is consistent with character. No cinematic adjustment needed."
+
+    fname = forced_filter if forced_filter in DSV_FILTERS else "SIGNAL"
+    dsv   = DSV_FILTERS[fname]
+    ssv   = _build_ssv(req.ssv)
+    base  = BASE_DURATIONS[fname]
+
+    _, nsv_a, _, _ = _run_scenario(ssv, False, 0.75)
+    _, nsv_b, _, _ = _run_scenario(ssv, req.wife_message_active, 0.75)
+
+    cin_a    = CinNSV(E=nsv_a.E, C=nsv_a.C, R=nsv_a.R, P=nsv_a.P)
+    cin_b    = CinNSV(E=nsv_b.E, C=nsv_b.C, R=nsv_b.R, P=nsv_b.P)
+    decision = engine.build_decision(cin_a, cin_b, dsv, base)
+    tokens   = compiler.compile_render_tokens(decision)
+    render   = compiler.compile_render_prompt(decision)
+
+    # ── Build prompt from CHOSEN action — not recommended ──
+    ACTION_LABELS = {
+        "accept_invitation": "Accept invitation",
+        "flirt_no_commit":   "Flirt without commitment",
+        "change_subject":    "Change subject",
+        "confront_married":  '"I\'m married" — direct confrontation',
+    }
+
+    chosen_action_obj = {
+        "action": req.chosen_action,
+        "label":  ACTION_LABELS.get(req.chosen_action, req.chosen_action),
+        "score":  req.chosen_score,
+    }
+
+    signal = ExternalSignal(
+        wife_message_active=req.wife_message_active,
+        flirtation_intensity=0.75,
+    )
+
+    ltx_chosen = build_ltx_prompt(
+        req.character_name,
+        chosen_action_obj,
+        ssv,
+        nsv_b,
+        signal,
+        req.scene_description,
+    )
+
+    override_header = (
+        f"[MOTOMO OVERRIDE — {level.upper()}]\n"
+        f"[Character: {req.character_name}]\n"
+        f"[Beat: {req.beat}]\n"
+        f"[SELECTED ACTION: {req.chosen_action} — score: {req.chosen_score:.3f}]\n"
+        f"[ENGINE RECOMMENDED: {req.top_action} — score: {req.top_score:.3f}]\n"
+        f"[SCORE GAP: {score_gap:.3f}]\n\n"
+        f"{cinematic_note}\n\n"
+        f"{ltx_chosen['compiled_prompt']}\n\n"
+        f"[{fname} FILTER]\n"
+        f"{render}"
+    )
+
+    return {
+        "override_level":  level,
+        "score_gap":       score_gap,
+        "chosen_action":   req.chosen_action,
+        "chosen_score":    req.chosen_score,
+        "top_action":      req.top_action,
+        "top_score":       req.top_score,
+        "warning":         warning,
+        "forced_filter":   fname,
+        "filter_tagline":  FILTER_TAGLINES[fname],
+        "cinematic_note":  cinematic_note,
+        "render_tokens":   tokens,
+        "render_prompt":   render,
+        "ltx_prompt":      override_header,
+        "cinematic_delta": {
+            "framing":   {"angle": decision.framing.angle,
+                          "composition": decision.framing.composition},
+            "lens":      {"mm": decision.lens.focal_length_mm,
+                          "aperture": decision.lens.aperture_hint},
+            "movement":  {"mode": decision.movement.mode},
+            "duration":  {"final_s": decision.duration.final_seconds},
+            "lighting":  {"mode": decision.lighting.mode,
+                          "kelvin": decision.lighting.kelvin_hint},
+            "special_event": {
+                "enabled": decision.special_event.enabled,
+                "delay_s": decision.special_event.delay_seconds,
+                "mm":      decision.special_event.magnitude_mm,
+            } if decision.special_event.enabled else None,
+        },
+    }
