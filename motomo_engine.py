@@ -526,10 +526,7 @@ def build_ltx_prompt(
     selection_type: str = "recommended",
     recommended_action: Optional[Dict] = None,
 ) -> Dict[str, str]:
-    """
-    Translates the computed action + NSV state into an LTX-ready video prompt.
-    This is the bridge between behavioral computation and video generation.
-    
+   
     action = top_action["action"]
 
     camera_specs = {
