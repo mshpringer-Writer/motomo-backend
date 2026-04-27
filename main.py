@@ -393,13 +393,16 @@ def compute_override(req: OverrideRequest):
     )
 
     ltx_chosen = build_ltx_prompt(
-        req.character_name,
-        chosen_action_obj,
-        ssv,
-        nsv_b,
-        signal,
-        req.scene_description,
-    )
+    req.character_name,
+    chosen_action_obj,
+    ssv,
+    nsv_b,
+    signal,
+    req.scene_description,
+    score_gap=score_gap,
+    selection_type="override",
+    recommended_action={"action": req.top_action, "score": req.top_score},
+)
 
     override_header = (
         f"[MOTOMO OVERRIDE — {level.upper()}]\n"
