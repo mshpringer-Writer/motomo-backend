@@ -31,8 +31,13 @@ app = FastAPI(title="MoToMo POC Backend", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "https://*.lovable.app",
+        "https://*.lovableproject.com",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -306,135 +311,3 @@ async def generate(req: GenerateRequest):
     return {"character": req.character_name, "beat": req.beat,
             "scenario_a": a, "scenario_b": b,
             "narrative_shift": f"{a['action']} → {b['action']}"}
-
-
-# ─── Override Endpoint ────────────────────────────────────────────────────────
-
-class OverrideRequest(BaseModel):
-    character_name:    str   = "Uri — The Wounded Loyalist"
-    beat:              str   = "Beat 7 — Bar, Late Evening"
-    scene_description: str   = "Maya invites him home"
-    ssv:               SSVInput
-    filter_name:       str   = "DISSOLVE"
-    wife_message_active: bool = False
-    chosen_action:     str   # the action the creator picked
-    top_action:        str   # what the engine recommended
-    top_score:         float
-    chosen_score:      float
-
-
-@app.post("/compute-override")
-def compute_override(req: OverrideRequest):
-    """
-    Deterministic override engine.
-    
-    score_gap = top_score - chosen_score
-    > 0.40 → RED  — character rupture → forced SIGNAL filter
-    > 0.20 → YELLOW — tension → current filter + harder treatment
-    else   → GREEN — within range → unchanged
-    
-    No LLM. Same gap → same output always.
-    """
-    score_gap = round(req.top_score - req.chosen_score, 3)
-
-    # ── Determine override level ──────────────────────────────────────────
-    if score_gap > 0.40:
-        level         = "red"
-        forced_filter = "SIGNAL"
-        warning       = (
-            f"This action exceeds the character's computed threshold by {score_gap:.3f}. "
-            f"Engine recommended '{req.top_action}' ({req.top_score:.3f}). "
-            f"Choosing '{req.chosen_action}' ({req.chosen_score:.3f}) is a character rupture."
-        )
-        cinematic_note = (
-            "CHARACTER RUPTURE — action violates internal logic. "
-            "Cinematic treatment: SIGNAL filter forced. "
-            "High contrast revelation light. Held threshold frame. "
-            "Delayed reframe on the moment of decision. "
-            "The world registers what the character cannot yet admit."
-        )
-
-    elif score_gap > 0.20:
-        level         = "yellow"
-        forced_filter = req.filter_name.upper()
-        warning       = (
-            f"Borderline action. Gap: {score_gap:.3f}. "
-            f"Engine preferred '{req.top_action}' ({req.top_score:.3f}). "
-            f"'{req.chosen_action}' ({req.chosen_score:.3f}) is plausible with intention."
-        )
-        cinematic_note = (
-            "BORDERLINE ACTION — use with dramatic intention. "
-            "Cinematic treatment: slightly harder contrast, "
-            "longer hold post-action, tension visible in framing."
-        )
-
-    else:
-        level         = "green"
-        forced_filter = req.filter_name.upper()
-        warning       = (
-            f"Action within acceptable range. Gap: {score_gap:.3f}. "
-            f"Override is minimal — character logic holds."
-        )
-        cinematic_note = "Action is consistent with character. No cinematic adjustment needed."
-
-    # ── Run cinematic engine with forced filter ───────────────────────────
-    fname = forced_filter
-    if fname not in DSV_FILTERS:
-        fname = "SIGNAL"
-
-    dsv  = DSV_FILTERS[fname]
-    ssv  = _build_ssv(req.ssv)
-    base = BASE_DURATIONS[fname]
-
-    _, nsv_a, _, _ = _run_scenario(ssv, False, 0.75)
-    _, nsv_b, _, _ = _run_scenario(ssv, req.wife_message_active, 0.75)
-
-    cin_a    = CinNSV(E=nsv_a.E, C=nsv_a.C, R=nsv_a.R, P=nsv_a.P)
-    cin_b    = CinNSV(E=nsv_b.E, C=nsv_b.C, R=nsv_b.R, P=nsv_b.P)
-    decision = engine.build_decision(cin_a, cin_b, dsv, base)
-    tokens   = compiler.compile_render_tokens(decision)
-    render   = compiler.compile_render_prompt(decision)
-
-    # ── Build override LTX prompt ─────────────────────────────────────────
-    override_header = (
-        f"[MOTOMO OVERRIDE — {level.upper()}]\n"
-        f"[Character: {req.character_name}]\n"
-        f"[Beat: {req.beat}]\n"
-        f"[CHOSEN ACTION: {req.chosen_action} — score: {req.chosen_score:.3f}]\n"
-        f"[ENGINE RECOMMENDED: {req.top_action} — score: {req.top_score:.3f}]\n"
-        f"[SCORE GAP: {score_gap:.3f}]\n\n"
-        f"{cinematic_note}\n\n"
-        f"[{fname} FILTER]\n"
-        f"{render}"
-    )
-
-    return {
-        "override_level":  level,
-        "score_gap":       score_gap,
-        "chosen_action":   req.chosen_action,
-        "chosen_score":    req.chosen_score,
-        "top_action":      req.top_action,
-        "top_score":       req.top_score,
-        "warning":         warning,
-        "forced_filter":   fname,
-        "filter_tagline":  FILTER_TAGLINES[fname],
-        "cinematic_note":  cinematic_note,
-        "render_tokens":   tokens,
-        "render_prompt":   render,
-        "ltx_prompt":      override_header,
-        "cinematic_delta": {
-            "framing":     {"angle": decision.framing.angle,
-                            "composition": decision.framing.composition},
-            "lens":        {"mm": decision.lens.focal_length_mm,
-                            "aperture": decision.lens.aperture_hint},
-            "movement":    {"mode": decision.movement.mode},
-            "duration":    {"final_s": decision.duration.final_seconds},
-            "lighting":    {"mode": decision.lighting.mode,
-                            "kelvin": decision.lighting.kelvin_hint},
-            "special_event": {
-                "enabled":  decision.special_event.enabled,
-                "delay_s":  decision.special_event.delay_seconds,
-                "mm":       decision.special_event.magnitude_mm,
-            } if decision.special_event.enabled else None,
-        },
-    }
