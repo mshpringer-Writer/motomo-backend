@@ -11,7 +11,7 @@ Endpoints:
 import os
 import asyncio
 from fastapi import FastAPI, HTTPException
-from fastapi..cors import CORS
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 
@@ -29,8 +29,8 @@ from motomo_cinematic_v2 import (
 
 app = FastAPI(title="MoToMo POC Backend", version="2.0.0")
 
-app.add_(
-    CORS,
+app.add_middleware(
+    CORSMiddleware,
     allow_origins=[
         "https://*.lovable.app",
         "https://*.lovableproject.com",
