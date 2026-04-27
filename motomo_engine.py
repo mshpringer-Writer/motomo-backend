@@ -474,15 +474,20 @@ def compute_performance_spec(
 
     # ── Three performance bands ────────────────────────────────────────
 
-    if performance_pressure < 0.35:
-        # LOW pressure — smooth, open, fluid
-        band = "low"
-    elif performance_pressure < 0.65:
-        # MID pressure — restrained, uneven
-        band = "mid"
-    else:
-        # HIGH pressure — fractured, hesitant, body resists
-        band = "high"
+HIGH_THRESHOLDS = {
+    "accept_invitation": 0.50,
+    "flirt_no_commit":   0.55,
+    "change_subject":    0.55,
+    "confront_married":  0.60,
+}
+high_threshold = HIGH_THRESHOLDS.get(action, 0.55)
+
+if performance_pressure < 0.30:
+    band = "low"
+elif performance_pressure < high_threshold:
+    band = "mid"
+else:
+    band = "high"
 
     # ── Per-action language, driven by band ───────────────────────────
 
@@ -524,14 +529,14 @@ def compute_performance_spec(
                 "emotion_anchor": "Desire / openness / no resistance",
                 "beat_note":      "~150ms — immediate, no hesitation",
             },
-            "mid": {
-                "posture":        "Relaxed lean — present but not fully committed",
-                "voice":          "Charismatic, slightly louder, rhythmic pauses",
-                "pace":           "Medium — conversational rhythm with moments of pull-back",
-                "gaze":           "Warm, intermittent — holds then glances away",
-                "emotion_anchor": "Desire / Risk / low-level restraint",
-                "beat_note":      f"~{pause_ms}ms — brief check before engaging",
-            },
+           "mid": {
+                "posture":        "Half-relaxed lean — socially engaged, body keeps an exit",
+                "voice":          "Warm but measured — charm appears, then self-checks",
+                "pace":           "Conversational with small pull-backs",
+                "gaze":           "Holds briefly, then glances away before intimacy lands",
+                "emotion_anchor": "Desire with low-level restraint / the flirt and the brake",
+                "beat_note":      f"~{pause_ms}ms — brief self-check before engaging",
+             },
             "high": {
                 "posture":        "Half-open — leaning slightly in, body angled away, one foot toward exit",
                 "voice":          "Warm but restrained — desire present, immediately checked",
@@ -648,7 +653,7 @@ def build_ltx_prompt(
         audit_line = (
             f"MoToMo selected_action={action} by creator override. "
             f"Engine recommended {recommended_action['action']}. "
-            f"Score gap={score_gap:.3f}; {perf['resistance_note']}."
+            f"Score gap={score_gap:.3f}; {perf['resistance_note']} [{perf['band']} pressure]."
         )
     else:
         audit_line = (
