@@ -555,3 +555,14 @@ def build_ltx_prompt(
         "aspect_ratio": "2.39:1",
         "resolution": "1920x804",
     }
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _normalize(vec):
+    mag = math.sqrt(sum(x**2 for x in vec))
+    if mag == 0:
+        return vec
+    return [x / mag for x in vec]
+
+
+def _sigmoid(x: float) -> float:
+    return 1 / (1 + math.exp(-x * 2))
