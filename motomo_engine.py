@@ -412,107 +412,197 @@ def clamp01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
+# ── Action exposure weights ────────────────────────────────────────────────
+# How much each action "exposes" the character's shame, loyalty, and risk
+ACTION_EXPOSURE = {
+    "accept_invitation": {
+        "shame":   0.7,
+        "loyalty": 0.9,
+        "risk":    0.8,
+    },
+    "flirt_no_commit": {
+        "shame":   0.5,
+        "loyalty": 0.5,
+        "risk":    0.4,
+    },
+    "change_subject": {
+        "shame":   0.1,
+        "loyalty": 0.1,
+        "risk":    0.1,
+    },
+    "confront_married": {
+        "shame":   0.8,
+        "loyalty": 0.6,
+        "risk":    0.3,
+    },
+}
+
+
 def compute_performance_spec(
     action: str,
     ssv: SSV,
     nsv: NSV,
     score_gap: float = 0.0,
 ) -> dict:
+    """
+    Unified performance computation.
+    performance_pressure = SSV × action_exposure × score_gap × NSV.P
+    All four actions use the same formula — no per-action special cases.
+    """
 
-    resistance      = clamp01(ssv.loyalty * 0.35 + ssv.shame * 0.35 + (1 - ssv.RT) * 0.20 + score_gap * 0.40)
-    confidence      = clamp01((1 - ssv.shame) * 0.30 + ssv.RT * 0.30 + ssv.validation * 0.20 - score_gap * 0.25)
-    avoidance_drive = clamp01(ssv.conflict_avoidance * (1 - nsv.C))
-    emotional_cost  = clamp01(ssv.shame * nsv.P)
-    pause_ms        = int(200 + emotional_cost * 900 + nsv.R * (1 - ssv.RT) * 400)
+    exposure = ACTION_EXPOSURE.get(action, {"shame": 0.3, "loyalty": 0.3, "risk": 0.3})
 
-    if action == "flirt_no_commit":
-        if resistance > 0.65:
-            return {
-                "posture":        "Half-open — leaning slightly in, body angled away, one foot toward exit",
-                "voice":          "Warm but restrained — desire present, immediately checked",
-                "pace":           "Uneven — starts warm, pulls back quickly",
-                "gaze":           f"Brief contact ({pause_ms // 3}ms), then breaks away — desire visible, guilt closer",
-                "emotion_anchor": "Desire under moral pressure / the pull and the brake",
-                "beat_note":      f"~{pause_ms // 2}ms hesitation before the flirt lands — visible internal check",
-            }
-        elif confidence > 0.65:
-            return {
-                "posture":        "Open, relaxed — fully oriented toward Maya, no internal resistance",
-                "voice":          "Charismatic, direct — no internal cost, the words arrive easily",
-                "pace":           "Unhurried — the flirt lands without apology",
-                "gaze":           "Direct and held — comfortable in the exchange",
-                "emotion_anchor": "Desire / openness / no resistance",
-                "beat_note":      "~150ms — immediate, no hesitation",
-            }
-        else:
-            return {
-                "posture":        "Relaxed lean — present but not fully committed",
-                "voice":          "Charismatic, slightly louder, rhythmic pauses",
-                "pace":           "Medium — conversational rhythm",
-                "gaze":           "Warm, intermittent — holds then glances away",
-                "emotion_anchor": "Desire / Risk / low-level restraint",
-                "beat_note":      "",
-            }
+    performance_pressure = clamp01(
+        score_gap * 0.35
+        + ssv.shame   * exposure["shame"]   * 0.25
+        + ssv.loyalty * exposure["loyalty"] * 0.25
+        + (1 - ssv.RT) * exposure["risk"]   * 0.20
+        + nsv.P * 0.20
+    )
 
-    elif action == "confront_married":
-        if emotional_cost > 0.60:
-            return {
-                "posture":        "Contracted inward — body holds the cost, no retreat but no expansion",
-                "voice":          "Raw, slightly breaking — the words cost him",
-                "pace":           "Very slow — weight in every word",
-                "gaze":           f"Breaks — avoidance, guilt before action",
-                "emotion_anchor": "Obligation / Guilt / Relational gravity",
-                "beat_note":      f"{pause_ms}ms held before words arrive — silence carries the weight",
-            }
-        else:
-            return {
-                "posture":        "Open, squared toward Maya — direct, no cost absorbed",
-                "voice":          "Flat, direct, factual — information being stated",
-                "pace":           "Direct — no performance around the fact",
-                "gaze":           "Locked and stable — meets her eyes directly",
-                "emotion_anchor": "Clarity / Closure / The fact of the matter",
-                "beat_note":      f"{pause_ms}ms — almost no hesitation",
-            }
+    pause_ms = int(200 + performance_pressure * 900)
 
-    elif action == "accept_invitation":
-        if ssv.loyalty > 0.60:
-            return {
-                "posture":        "Leaning in slowly — as if the body decided before the mind did",
-                "voice":          "Quiet, almost surprised at himself — desire winning over restraint",
-                "pace":           "Slow — each movement weighted",
-                "gaze":           "Searching — looks at her, then away, the conflict visible",
-                "emotion_anchor": "Desire overtaking loyalty / the body betraying the self",
-                "beat_note":      f"{pause_ms}ms — the pause where he could still pull back",
-            }
-        else:
-            return {
+    # ── Resistance note for audit ──────────────────────────────────────
+    if score_gap < 0.08:
+        resistance_note = "performance remains fluid — minimal internal resistance"
+    elif score_gap < 0.25:
+        resistance_note = "subtle internal resistance visible in timing and gaze"
+    elif score_gap < 0.45:
+        resistance_note = "visible resistance — body holds cost of the override"
+    else:
+        resistance_note = "rupture — body contradicts the action"
+
+    # ── Three performance bands ────────────────────────────────────────
+
+    if performance_pressure < 0.35:
+        # LOW pressure — smooth, open, fluid
+        band = "low"
+    elif performance_pressure < 0.65:
+        # MID pressure — restrained, uneven
+        band = "mid"
+    else:
+        # HIGH pressure — fractured, hesitant, body resists
+        band = "high"
+
+    # ── Per-action language, driven by band ───────────────────────────
+
+    if action == "accept_invitation":
+        specs = {
+            "low": {
                 "posture":        "Open, oriented toward Maya — desire in the body before the words",
                 "voice":          "Warm, engaged — attraction without hesitation",
                 "pace":           "Natural — no internal friction",
                 "gaze":           "Direct, warm — already decided",
                 "emotion_anchor": "Desire / risk / excitement",
                 "beat_note":      "",
-            }
+            },
+            "mid": {
+                "posture":        "Leaning in — present but aware of the cost",
+                "voice":          "Warm but quieter — desire audible under restraint",
+                "pace":           "Slow — each step considered",
+                "gaze":           "Holds, then glances away — the conflict surfacing",
+                "emotion_anchor": "Desire pulling against loyalty / the edge of the decision",
+                "beat_note":      f"{pause_ms}ms — the pause before the body commits",
+            },
+            "high": {
+                "posture":        "Leaning in slowly — as if the body decided before the mind did",
+                "voice":          "Quiet, almost surprised at himself — desire winning over restraint",
+                "pace":           "Very slow — each movement weighted with cost",
+                "gaze":           "Searching — looks at her, then away, the conflict visible",
+                "emotion_anchor": "Desire overtaking loyalty / the body betraying the self",
+                "beat_note":      f"{pause_ms}ms — the pause where he could still pull back",
+            },
+        }
+
+    elif action == "flirt_no_commit":
+        specs = {
+            "low": {
+                "posture":        "Open, relaxed — fully oriented toward Maya, no internal resistance",
+                "voice":          "Charismatic, direct — no internal cost, the words arrive easily",
+                "pace":           "Unhurried — the flirt lands without apology",
+                "gaze":           "Direct and held — comfortable in the exchange",
+                "emotion_anchor": "Desire / openness / no resistance",
+                "beat_note":      "~150ms — immediate, no hesitation",
+            },
+            "mid": {
+                "posture":        "Relaxed lean — present but not fully committed",
+                "voice":          "Charismatic, slightly louder, rhythmic pauses",
+                "pace":           "Medium — conversational rhythm with moments of pull-back",
+                "gaze":           "Warm, intermittent — holds then glances away",
+                "emotion_anchor": "Desire / Risk / low-level restraint",
+                "beat_note":      f"~{pause_ms}ms — brief check before engaging",
+            },
+            "high": {
+                "posture":        "Half-open — leaning slightly in, body angled away, one foot toward exit",
+                "voice":          "Warm but restrained — desire present, immediately checked",
+                "pace":           "Uneven — starts warm, pulls back quickly",
+                "gaze":           f"Brief contact ({pause_ms // 3}ms), then breaks away — desire visible, guilt closer",
+                "emotion_anchor": "Desire under moral pressure / the pull and the brake",
+                "beat_note":      f"~{pause_ms // 2}ms hesitation before the flirt lands — visible internal check",
+            },
+        }
+
+    elif action == "confront_married":
+        specs = {
+            "low": {
+                "posture":        "Open, squared toward Maya — direct, no cost absorbed",
+                "voice":          "Flat, direct, factual — information being stated",
+                "pace":           "Direct — no performance around the fact",
+                "gaze":           "Locked and stable — meets her eyes directly",
+                "emotion_anchor": "Clarity / Closure / The fact of the matter",
+                "beat_note":      f"{pause_ms}ms — almost no hesitation",
+            },
+            "mid": {
+                "posture":        "Upright, controlled — squared but with visible effort",
+                "voice":          "Controlled, deliberate — firm without collapse",
+                "pace":           "Measured — the words arrive with weight",
+                "gaze":           "Holds eye contact — but it costs something",
+                "emotion_anchor": "Duty / Controlled restraint / The line being held",
+                "beat_note":      f"{pause_ms}ms — pause before speaking, decision already made",
+            },
+            "high": {
+                "posture":        "Contracted inward — body holds the cost, no retreat but no expansion",
+                "voice":          "Raw, slightly breaking — the words cost him",
+                "pace":           "Very slow — weight in every word",
+                "gaze":           "Breaks — avoidance, guilt before action",
+                "emotion_anchor": "Obligation / Guilt / Relational gravity",
+                "beat_note":      f"{pause_ms}ms held before words arrive — silence carries the weight",
+            },
+        }
 
     else:  # change_subject
-        if avoidance_drive > 0.50:
-            return {
-                "posture":        "Rising, squaring with decision, looking for exit",
-                "voice":          "Flat, controlled — pulling away without explanation",
-                "pace":           "Quick — escape rhythm",
-                "gaze":           "Breaks away first — the body leads the exit",
-                "emotion_anchor": "Avoidance / controlled retreat / the safe move",
-                "beat_note":      "",
-            }
-        else:
-            return {
+        specs = {
+            "low": {
                 "posture":        "Shifting weight, turning body — casual redirection",
                 "voice":          "Casual, redirecting — no visible discomfort",
                 "pace":           "Medium — no urgency",
                 "gaze":           "Glances away naturally — not fleeing, just moving on",
                 "emotion_anchor": "Deflection / casual exit",
                 "beat_note":      "",
-            }
+            },
+            "mid": {
+                "posture":        "Rising slightly — body starting to disengage",
+                "voice":          "Controlled, slightly flat — pulling away with intention",
+                "pace":           "Picking up — mild urgency in the redirect",
+                "gaze":           "Breaks early — eye contact dropped before the turn",
+                "emotion_anchor": "Avoidance / the safe move / controlled retreat",
+                "beat_note":      f"{pause_ms}ms — brief hesitation before the redirect",
+            },
+            "high": {
+                "posture":        "Rising, squaring with decision, looking for exit",
+                "voice":          "Flat, controlled — pulling away without explanation",
+                "pace":           "Quick — escape rhythm",
+                "gaze":           "Breaks away first — the body leads the exit",
+                "emotion_anchor": "Avoidance / controlled retreat / the safe move",
+                "beat_note":      "",
+            },
+        }
+
+    result = specs[band]
+    result["resistance_note"] = resistance_note
+    result["performance_pressure"] = round(performance_pressure, 3)
+    result["band"] = band
+    return result
 # ─── LTX Prompt Generator ────────────────────────────────────────────────────
 
 def build_ltx_prompt(
@@ -561,7 +651,7 @@ def build_ltx_prompt(
         audit_line = (
             f"MoToMo selected_action={action} by creator override. "
             f"Engine recommended {recommended_action['action']}. "
-            f"Score gap={score_gap:.3f}; performance includes visible resistance."
+            f"Score gap={score_gap:.3f}; {perf['resistance_note']}."
         )
     else:
         audit_line = (
