@@ -616,7 +616,7 @@ def build_ltx_prompt(
     selection_type: str = "recommended",
     recommended_action: Optional[Dict] = None,
 ) -> Dict[str, str]:
-   
+
     action = top_action["action"]
 
     camera_specs = {
@@ -626,13 +626,12 @@ def build_ltx_prompt(
         "confront_married":   "Tight close-up, static frame, very long take, character faces camera",
     }
 
-        # Compute performance from SSV × NSV × score_gap
-        perf = compute_performance_spec(action, ssv, nsv, score_gap)
+    perf = compute_performance_spec(action, ssv, nsv, score_gap)
+    beat_line = f"- Beat: {perf['beat_note']}\n" if perf.get("beat_note") else ""
 
-        # NSV context
-        E_desc = "high emotional charge" if nsv.E > 0.3 else "suppressed emotion" if nsv.E < -0.1 else "controlled tension"
-        P_desc = "heavy internal cost visible" if nsv.P > 0.6 else "moderate restraint" if nsv.P > 0.3 else "clear engagement"
-        R_desc = "risk fully activated" if nsv.R > 0.7 else "moderate alertness" if nsv.R > 0.4 else "relaxed"
+    E_desc = "high emotional charge" if nsv.E > 0.3 else "suppressed emotion" if nsv.E < -0.1 else "controlled tension"
+    P_desc = "heavy internal cost visible" if nsv.P > 0.6 else "moderate restraint" if nsv.P > 0.3 else "clear engagement"
+    R_desc = "risk fully activated" if nsv.R > 0.7 else "moderate alertness" if nsv.R > 0.4 else "relaxed"
 
     if signal.wife_message_active:
         nsv_context = (
@@ -645,7 +644,6 @@ def build_ltx_prompt(
             f"No relational constraint active. {E_desc}. {R_desc}."
         )
 
-    # Audit line — honest about override
     if selection_type == "override" and recommended_action:
         audit_line = (
             f"MoToMo selected_action={action} by creator override. "
@@ -660,7 +658,8 @@ def build_ltx_prompt(
         )
 
     compiled_prompt = (
-    f"[MoToMo-v4.2 | Deterministic Character Engine]\n"
+        f"[MoToMo-v4.2 | Deterministic Character Engine]\n"
+        f"[Character: {character_name}]\n"
         f"[Beat: Uri at the Bar — Beat 7]\n"
         f"[Location: Bar — Late Evening]\n"
         f"[{beat_context}]\n\n"
@@ -693,7 +692,6 @@ def build_ltx_prompt(
         "aspect_ratio":     "2.39:1",
         "resolution":       "1920x804",
     }
-
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
