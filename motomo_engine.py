@@ -628,7 +628,17 @@ def build_ltx_prompt(
 
     # Compute performance from SSV × NSV × score_gap
     perf = compute_performance_spec(action, ssv, nsv, score_gap)
-    beat_line = f"- Beat: {perf['beat_note']}\n" if perf.get("beat_note") else ""
+
+# DEBUG — remove after fix
+debug_block = (
+    f"[PERFORMANCE DEBUG]\n"
+    f"action={action}\n"
+    f"loyalty={ssv.loyalty:.2f} shame={ssv.shame:.2f} RT={ssv.RT:.2f}\n"
+    f"score_gap={score_gap:.3f} nsv.P={nsv.P:.3f} nsv.R={nsv.R:.3f}\n"
+    f"performance_pressure={perf['performance_pressure']}\n"
+    f"band={perf['band']}\n"
+    f"resistance_note={perf['resistance_note']}\n"
+)
 
     # NSV context
     E_desc = "high emotional charge" if nsv.E > 0.3 else "suppressed emotion" if nsv.E < -0.1 else "controlled tension"
@@ -661,8 +671,8 @@ def build_ltx_prompt(
         )
 
     compiled_prompt = (
-        f"[MoToMo-v4.2 | Deterministic Character Engine]\n"
-        f"[Character: {character_name}]\n"
+    f"{debug_block}\n"
+    f"[MoToMo-v4.2 | Deterministic Character Engine]\n"
         f"[Beat: Uri at the Bar — Beat 7]\n"
         f"[Location: Bar — Late Evening]\n"
         f"[{beat_context}]\n\n"
