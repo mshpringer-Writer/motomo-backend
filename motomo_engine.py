@@ -419,45 +419,94 @@ def build_ltx_prompt(
     signal: ExternalSignal,
     beat_context: str,
 ) -> Dict[str, str]:
-    """
-    Translates the computed action + NSV state into an LTX-ready video prompt.
-    This is the bridge between behavioral computation and video generation.
-    
-    Performance spec derived from:
-    - The winning action's signature (dE, dC, dR, dP)
-    - Current NSV state
-    - SSV personality
-    """
     action = top_action["action"]
-    
-    # Camera and staging derived from action type + NSV state
+
+    # ── Camera: קבוע לפי פעולה (לא תלוי SSV) ──
     camera_specs = {
-        "accept_invitation": "Two-shot, eye-level, medium depth, slow push-in toward Maya",
-        "flirt_no_commit": "Two-shot, eye-level, medium depth, conversational rhythm",
-        "change_subject": "Medium shot, slight rack focus, character turns body",
-        "confront_married": "Tight close-up, static frame, very long take, character faces camera",
+        "accept_invitation":  "Two-shot, eye-level, medium depth, slow push-in toward Maya",
+        "flirt_no_commit":    "Two-shot, eye-level, medium depth, conversational rhythm",
+        "change_subject":     "Medium shot, slight rack focus, character turns body",
+        "confront_married":   "Tight close-up, static frame, very long take, character faces camera",
     }
-    
-    vocal_tones = {
-        "accept_invitation": "Warm, engaged, quiet — attraction without proclamation",
-        "flirt_no_commit": "Charismatic, slightly louder, rhythmic pauses",
-        "change_subject": "Flat, controlled, minimal inflection",
-        "confront_married": "Raw, slightly breaking, authentic — weight in every word",
+
+    # ── Pace: קבוע לפי פעולה ──
+    pace_specs = {
+        "accept_invitation":  "Medium — drawn toward connection",
+        "flirt_no_commit":    "Medium — conversational rhythm",
+        "change_subject":     "Quick — escape rhythm",
+        "confront_married":   "Very slow — weight in every word",
     }
-    
-    postures = {
-        "accept_invitation": "Leaning in, arms uncrossed, oriented toward Maya",
-        "flirt_no_commit": "Relaxed, confident lean, one arm on bar",
-        "change_subject": "Rising, squaring with decision, looking for exit",
-        "confront_married": "Still, squared toward Maya, no retreat",
-    }
-    
-    # Emotional state from NSV
+
+    # ── Vocal tone: SSV-sensitive ──
+    def _vocal_tone(action: str, ssv: SSV) -> str:
+        if action == "confront_married":
+            if ssv.shame > 0.60:
+                return "Raw, slightly breaking — the words cost him"
+            elif ssv.shame < 0.25:
+                return "Flat, direct, factual — information being stated"
+            else:
+                return "Controlled, deliberate — firm without collapse"
+        elif action == "accept_invitation":
+            return "Warm, engaged, quiet — attraction without proclamation"
+        elif action == "flirt_no_commit":
+            return "Charismatic, slightly louder, rhythmic pauses"
+        else:
+            return "Flat, controlled, minimal inflection"
+
+    # ── Posture: SSV-sensitive ──
+    def _posture(action: str, ssv: SSV) -> str:
+        if action == "confront_married":
+            if ssv.conflict_avoidance > 0.60:
+                return "Contracted inward — body holds the cost, no retreat but no expansion"
+            else:
+                return "Open, squared toward Maya — direct, no cost absorbed"
+        elif action == "accept_invitation":
+            return "Leaning in, arms uncrossed, oriented toward Maya"
+        elif action == "flirt_no_commit":
+            return "Relaxed, confident lean, one arm on bar"
+        else:
+            return "Rising, squaring with decision, looking for exit"
+
+    # ── Emotion anchor: SSV-sensitive ──
+    def _emotion_anchor(action: str, ssv: SSV, signal: ExternalSignal) -> str:
+        if not signal.wife_message_active:
+            return "Desire / Risk / Excitement"
+        if action == "confront_married":
+            if ssv.shame > 0.60 and ssv.loyalty > 0.60:
+                return "Obligation / Guilt / Relational gravity"
+            elif ssv.shame < 0.25:
+                return "Clarity / Closure / The fact of the matter"
+            else:
+                return "Duty / Controlled restraint"
+        return "Obligation / Guilt / Relational gravity"
+
+    # ── Performance pause: SSV-sensitive ──
+    def _pause_note(action: str, ssv: SSV, nsv: NSV) -> str:
+        if action != "confront_married":
+            return ""
+        pause_ms = int(200 + ssv.shame * nsv.P * 900 + nsv.R * (1 - ssv.RT) * 400)
+        if pause_ms > 900:
+            return f"\n- Beat: {pause_ms}ms held before words arrive — silence carries the weight"
+        elif pause_ms > 500:
+            return f"\n- Beat: {pause_ms}ms — brief pause before speaking"
+        else:
+            return f"\n- Beat: {pause_ms}ms — almost no hesitation"
+
+    # ── Gaze: SSV-sensitive ──
+    def _gaze(action: str, ssv: SSV, nsv: NSV) -> str:
+        if action == "confront_married":
+            gaze_instability = nsv.P * ssv.shame
+            if gaze_instability > 0.60:
+                return "\n- Gaze: Breaks — avoidance, guilt before action"
+            else:
+                return "\n- Gaze: Locked and stable — meets her eyes directly"
+        return ""
+
+    # ── NSV context ──
     E_desc = "high emotional charge" if nsv.E > 0.3 else "suppressed emotion" if nsv.E < -0.1 else "controlled tension"
     P_desc = "heavy internal cost visible" if nsv.P > 0.6 else "moderate restraint" if nsv.P > 0.3 else "clear engagement"
     R_desc = "risk fully activated" if nsv.R > 0.7 else "moderate alertness" if nsv.R > 0.4 else "relaxed"
-    
-    # Build the compiled prompt
+
     if signal.wife_message_active:
         nsv_context = (
             f"[wife_message: Active — relational_commitment_salience=0.91] "
@@ -468,7 +517,7 @@ def build_ltx_prompt(
             f"[wife_message: Inactive — relational_commitment_salience=0.15] "
             f"No relational constraint active. {E_desc}. {R_desc}."
         )
-    
+
     compiled_prompt = (
         f"[MoToMo-v4.2 | Deterministic Character Engine]\n"
         f"[Character: {character_name}]\n"
@@ -477,100 +526,32 @@ def build_ltx_prompt(
         f"[{beat_context}]\n\n"
         f"ACTION: {top_action['label']}\n\n"
         f"PERFORMANCE DIRECTIVES:\n"
-        f"- Posture: {postures[action]}\n"
-        f"- Voice: {vocal_tones[action]}\n"
+        f"- Posture: {_posture(action, ssv)}\n"
+        f"- Voice: {_vocal_tone(action, ssv)}\n"
         f"- Camera: {camera_specs[action]}\n"
-        f"- Pace: {'Very slow — weight in every word' if action == 'confront_married' else 'Medium — conversational rhythm'}\n"
-        f"- Emotion anchor: {'Obligation / Guilt / Relational gravity' if signal.wife_message_active else 'Desire / Risk / Excitement'}\n\n"
+        f"- Pace: {pace_specs[action]}"
+        f"{_pause_note(action, ssv, nsv)}"
+        f"{_gaze(action, ssv, nsv)}\n"
+        f"- Emotion anchor: {_emotion_anchor(action, ssv, signal)}\n\n"
         f"INTERNAL STATE: {nsv_context}\n"
         f"MoToMo score={top_action['score']:.3f} "
         f"[loyalty={ssv.loyalty:.2f}, shame={ssv.shame:.2f}, RT={ssv.RT:.2f}] "
         f"computed {action} as most internally consistent given NSV."
     )
-    
+
     negative_prompt = (
         "No improvisation outside computed action space. "
         "No contradictory emotional signals. "
         "No relaxed or casual demeanor. "
         "No breaking of deterministic character logic."
     )
-    
+
     return {
         "compiled_prompt": compiled_prompt,
         "negative_prompt": negative_prompt,
         "camera": camera_specs[action],
-        "vocal_tone": vocal_tones[action],
+        "vocal_tone": _vocal_tone(action, ssv),
         "duration": 9 if action != "confront_married" else 12,
         "aspect_ratio": "2.39:1",
         "resolution": "1920x804",
     }
-
-
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
-def _normalize(vec: List[float]) -> List[float]:
-    mag = math.sqrt(sum(x**2 for x in vec))
-    if mag == 0:
-        return vec
-    return [x / mag for x in vec]
-
-
-def _sigmoid(x: float) -> float:
-    return 1 / (1 + math.exp(-x * 2))
-
-
-# ─── Test (run directly to verify) ──────────────────────────────────────────
-
-if __name__ == "__main__":
-    # Uri — The Wounded Loyalist
-    # Values taken directly from the POC sliders
-    uri_ssv = SSV(
-        RT=0.22,              # risk_tolerance
-        PS=0.88,              # price_sensitivity (from shame_sensitivity)
-        DT=0.35,              # dominance_trait (inferred — conflict_avoidance is high)
-        loyalty=0.82,
-        shame=0.88,
-        validation=0.78,
-        conflict_avoidance=0.82,
-        Yu="relational_security",
-    )
-    
-    # Base NSV — bar, beat 7, Maya flirting
-    base_nsv = NSV(E=0.3, C=0.2, R=0.3, P=0.2, Dc=0.5, Du=0.6)
-    
-    print("=" * 60)
-    print("SCENARIO A — No wife message")
-    print("=" * 60)
-    signal_a = ExternalSignal(wife_message_active=False)
-    rankings_a = compute_rankings(uri_ssv, base_nsv, signal_a)
-    for i, r in enumerate(rankings_a, 1):
-        print(f"{i}. {r['label']:<35} {r['score']:.3f}")
-        print(f"   → {r['explanation'][:100]}...")
-    
-    top_a = rankings_a[0]
-    nsv_a = apply_nsv_update(base_nsv, uri_ssv, signal_a)
-    prompt_a = build_ltx_prompt("Uri — The Wounded Loyalist", top_a, uri_ssv, nsv_a, signal_a, "Maya invites him home")
-    print(f"\nTop action: {top_a['label']}")
-    print(f"LTX duration: {prompt_a['duration']}s")
-    
-    print("\n" + "=" * 60)
-    print("SCENARIO B — Wife message arrives")
-    print("=" * 60)
-    signal_b = ExternalSignal(wife_message_active=True)
-    rankings_b = compute_rankings(uri_ssv, base_nsv, signal_b)
-    for i, r in enumerate(rankings_b, 1):
-        print(f"{i}. {r['label']:<35} {r['score']:.3f}")
-        print(f"   → {r['explanation'][:100]}...")
-    
-    top_b = rankings_b[0]
-    nsv_b = apply_nsv_update(base_nsv, uri_ssv, signal_b)
-    prompt_b = build_ltx_prompt("Uri — The Wounded Loyalist", top_b, uri_ssv, nsv_b, signal_b, "Maya invites him home")
-    print(f"\nTop action: {top_b['label']}")
-    
-    print("\n" + "=" * 60)
-    print("DELTA — How the ranking shifted")
-    print("=" * 60)
-    for a, b in zip(rankings_a, rankings_b):
-        delta = b["score"] - a["score"]
-        sign = "↑" if delta > 0 else "↓"
-        print(f"{a['label']:<35} {a['score']:.3f} → {b['score']:.3f}  {sign}{abs(delta):.3f}")
