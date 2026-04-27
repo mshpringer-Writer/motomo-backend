@@ -475,19 +475,19 @@ def compute_performance_spec(
     # ── Three performance bands ────────────────────────────────────────
 
 HIGH_THRESHOLDS = {
-    "accept_invitation": 0.50,
-    "flirt_no_commit":   0.55,
-    "change_subject":    0.55,
-    "confront_married":  0.60,
-}
-high_threshold = HIGH_THRESHOLDS.get(action, 0.55)
+        "accept_invitation": 0.50,
+        "flirt_no_commit":   0.55,
+        "change_subject":    0.55,
+        "confront_married":  0.60,
+    }
+    high_threshold = HIGH_THRESHOLDS.get(action, 0.55)
 
-if performance_pressure < 0.30:
-    band = "low"
-elif performance_pressure < high_threshold:
-    band = "mid"
-else:
-    band = "high"
+    if performance_pressure < 0.30:
+        band = "low"
+    elif performance_pressure < high_threshold:
+        band = "mid"
+    else:
+        band = "high"
 
     # ── Per-action language, driven by band ───────────────────────────
 
