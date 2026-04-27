@@ -628,7 +628,10 @@ def build_ltx_prompt(
 
     # Compute performance from SSV × NSV × score_gap
     perf = compute_performance_spec(action, ssv, nsv, score_gap)
-
+    # NSV context
+        E_desc = "high emotional charge" if nsv.E > 0.3 else "suppressed emotion" if nsv.E < -0.1 else "controlled tension"
+        P_desc = "heavy internal cost visible" if nsv.P > 0.6 else "moderate restraint" if nsv.P > 0.3 else "clear engagement"
+        R_desc = "risk fully activated" if nsv.R > 0.7 else "moderate alertness" if nsv.R > 0.4 else "relaxed"
     if signal.wife_message_active:
         nsv_context = (
             f"[wife_message: Active — relational_commitment_salience=0.91] "
@@ -655,7 +658,6 @@ def build_ltx_prompt(
         )
 
     compiled_prompt = (
-    f"{debug_block}\n"
     f"[MoToMo-v4.2 | Deterministic Character Engine]\n"
         f"[Beat: Uri at the Bar — Beat 7]\n"
         f"[Location: Bar — Late Evening]\n"
