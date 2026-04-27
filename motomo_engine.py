@@ -472,9 +472,9 @@ def compute_performance_spec(
     else:
         resistance_note = "rupture — body contradicts the action"
 
-    # ── Three performance bands ────────────────────────────────────────
+    # ── Three performance bands ──
 
-HIGH_THRESHOLDS = {
+    HIGH_THRESHOLDS = {
         "accept_invitation": 0.50,
         "flirt_no_commit":   0.55,
         "change_subject":    0.55,
@@ -488,6 +488,7 @@ HIGH_THRESHOLDS = {
         band = "mid"
     else:
         band = "high"
+
 
     # ── Per-action language, driven by band ───────────────────────────
 
