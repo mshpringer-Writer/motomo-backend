@@ -12,7 +12,7 @@ Formulas implemented:
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 # ─── κ constants (global physics of drama) ──────────────────────────────────
 # Calibrated for POC — these are the "laws of physics" of drama.
@@ -408,7 +408,111 @@ def compute_rankings(
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
 
+def clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
 
+
+def compute_performance_spec(
+    action: str,
+    ssv: SSV,
+    nsv: NSV,
+    score_gap: float = 0.0,
+) -> dict:
+
+    resistance      = clamp01(ssv.loyalty * 0.35 + ssv.shame * 0.35 + (1 - ssv.RT) * 0.20 + score_gap * 0.40)
+    confidence      = clamp01((1 - ssv.shame) * 0.30 + ssv.RT * 0.30 + ssv.validation * 0.20 - score_gap * 0.25)
+    avoidance_drive = clamp01(ssv.conflict_avoidance * (1 - nsv.C))
+    emotional_cost  = clamp01(ssv.shame * nsv.P)
+    pause_ms        = int(200 + emotional_cost * 900 + nsv.R * (1 - ssv.RT) * 400)
+
+    if action == "flirt_no_commit":
+        if resistance > 0.65:
+            return {
+                "posture":        "Half-open — leaning slightly in, body angled away, one foot toward exit",
+                "voice":          "Warm but restrained — desire present, immediately checked",
+                "pace":           "Uneven — starts warm, pulls back quickly",
+                "gaze":           f"Brief contact ({pause_ms // 3}ms), then breaks away — desire visible, guilt closer",
+                "emotion_anchor": "Desire under moral pressure / the pull and the brake",
+                "beat_note":      f"~{pause_ms // 2}ms hesitation before the flirt lands — visible internal check",
+            }
+        elif confidence > 0.65:
+            return {
+                "posture":        "Open, relaxed — fully oriented toward Maya, no internal resistance",
+                "voice":          "Charismatic, direct — no internal cost, the words arrive easily",
+                "pace":           "Unhurried — the flirt lands without apology",
+                "gaze":           "Direct and held — comfortable in the exchange",
+                "emotion_anchor": "Desire / openness / no resistance",
+                "beat_note":      "~150ms — immediate, no hesitation",
+            }
+        else:
+            return {
+                "posture":        "Relaxed lean — present but not fully committed",
+                "voice":          "Charismatic, slightly louder, rhythmic pauses",
+                "pace":           "Medium — conversational rhythm",
+                "gaze":           "Warm, intermittent — holds then glances away",
+                "emotion_anchor": "Desire / Risk / low-level restraint",
+                "beat_note":      "",
+            }
+
+    elif action == "confront_married":
+        if emotional_cost > 0.60:
+            return {
+                "posture":        "Contracted inward — body holds the cost, no retreat but no expansion",
+                "voice":          "Raw, slightly breaking — the words cost him",
+                "pace":           "Very slow — weight in every word",
+                "gaze":           f"Breaks — avoidance, guilt before action",
+                "emotion_anchor": "Obligation / Guilt / Relational gravity",
+                "beat_note":      f"{pause_ms}ms held before words arrive — silence carries the weight",
+            }
+        else:
+            return {
+                "posture":        "Open, squared toward Maya — direct, no cost absorbed",
+                "voice":          "Flat, direct, factual — information being stated",
+                "pace":           "Direct — no performance around the fact",
+                "gaze":           "Locked and stable — meets her eyes directly",
+                "emotion_anchor": "Clarity / Closure / The fact of the matter",
+                "beat_note":      f"{pause_ms}ms — almost no hesitation",
+            }
+
+    elif action == "accept_invitation":
+        if ssv.loyalty > 0.60:
+            return {
+                "posture":        "Leaning in slowly — as if the body decided before the mind did",
+                "voice":          "Quiet, almost surprised at himself — desire winning over restraint",
+                "pace":           "Slow — each movement weighted",
+                "gaze":           "Searching — looks at her, then away, the conflict visible",
+                "emotion_anchor": "Desire overtaking loyalty / the body betraying the self",
+                "beat_note":      f"{pause_ms}ms — the pause where he could still pull back",
+            }
+        else:
+            return {
+                "posture":        "Open, oriented toward Maya — desire in the body before the words",
+                "voice":          "Warm, engaged — attraction without hesitation",
+                "pace":           "Natural — no internal friction",
+                "gaze":           "Direct, warm — already decided",
+                "emotion_anchor": "Desire / risk / excitement",
+                "beat_note":      "",
+            }
+
+    else:  # change_subject
+        if avoidance_drive > 0.50:
+            return {
+                "posture":        "Rising, squaring with decision, looking for exit",
+                "voice":          "Flat, controlled — pulling away without explanation",
+                "pace":           "Quick — escape rhythm",
+                "gaze":           "Breaks away first — the body leads the exit",
+                "emotion_anchor": "Avoidance / controlled retreat / the safe move",
+                "beat_note":      "",
+            }
+        else:
+            return {
+                "posture":        "Shifting weight, turning body — casual redirection",
+                "voice":          "Casual, redirecting — no visible discomfort",
+                "pace":           "Medium — no urgency",
+                "gaze":           "Glances away naturally — not fleeing, just moving on",
+                "emotion_anchor": "Deflection / casual exit",
+                "beat_note":      "",
+            }
 # ─── LTX Prompt Generator ────────────────────────────────────────────────────
 
 def build_ltx_prompt(
@@ -418,46 +522,32 @@ def build_ltx_prompt(
     nsv: NSV,
     signal: ExternalSignal,
     beat_context: str,
+    score_gap: float = 0.0,
+    selection_type: str = "recommended",
+    recommended_action: Optional[Dict] = None,
 ) -> Dict[str, str]:
     """
     Translates the computed action + NSV state into an LTX-ready video prompt.
     This is the bridge between behavioral computation and video generation.
     
-    Performance spec derived from:
-    - The winning action's signature (dE, dC, dR, dP)
-    - Current NSV state
-    - SSV personality
-    """
     action = top_action["action"]
-    
-    # Camera and staging derived from action type + NSV state
+
     camera_specs = {
-        "accept_invitation": "Two-shot, eye-level, medium depth, slow push-in toward Maya",
-        "flirt_no_commit": "Two-shot, eye-level, medium depth, conversational rhythm",
-        "change_subject": "Medium shot, slight rack focus, character turns body",
-        "confront_married": "Tight close-up, static frame, very long take, character faces camera",
+        "accept_invitation":  "Two-shot, eye-level, medium depth, slow push-in toward Maya",
+        "flirt_no_commit":    "Two-shot, eye-level, medium depth, conversational rhythm",
+        "change_subject":     "Medium shot, slight rack focus, character turns body",
+        "confront_married":   "Tight close-up, static frame, very long take, character faces camera",
     }
-    
-    vocal_tones = {
-        "accept_invitation": "Warm, engaged, quiet — attraction without proclamation",
-        "flirt_no_commit": "Charismatic, slightly louder, rhythmic pauses",
-        "change_subject": "Flat, controlled, minimal inflection",
-        "confront_married": "Raw, slightly breaking, authentic — weight in every word",
-    }
-    
-    postures = {
-        "accept_invitation": "Leaning in, arms uncrossed, oriented toward Maya",
-        "flirt_no_commit": "Relaxed, confident lean, one arm on bar",
-        "change_subject": "Rising, squaring with decision, looking for exit",
-        "confront_married": "Still, squared toward Maya, no retreat",
-    }
-    
-    # Emotional state from NSV
+
+    # Compute performance from SSV × NSV × score_gap
+    perf = compute_performance_spec(action, ssv, nsv, score_gap)
+    beat_line = f"- Beat: {perf['beat_note']}\n" if perf.get("beat_note") else ""
+
+    # NSV context
     E_desc = "high emotional charge" if nsv.E > 0.3 else "suppressed emotion" if nsv.E < -0.1 else "controlled tension"
     P_desc = "heavy internal cost visible" if nsv.P > 0.6 else "moderate restraint" if nsv.P > 0.3 else "clear engagement"
     R_desc = "risk fully activated" if nsv.R > 0.7 else "moderate alertness" if nsv.R > 0.4 else "relaxed"
-    
-    # Build the compiled prompt
+
     if signal.wife_message_active:
         nsv_context = (
             f"[wife_message: Active — relational_commitment_salience=0.91] "
@@ -468,7 +558,21 @@ def build_ltx_prompt(
             f"[wife_message: Inactive — relational_commitment_salience=0.15] "
             f"No relational constraint active. {E_desc}. {R_desc}."
         )
-    
+
+    # Audit line — honest about override
+    if selection_type == "override" and recommended_action:
+        audit_line = (
+            f"MoToMo selected_action={action} by creator override. "
+            f"Engine recommended {recommended_action['action']}. "
+            f"Score gap={score_gap:.3f}; performance includes visible resistance."
+        )
+    else:
+        audit_line = (
+            f"MoToMo score={top_action['score']:.3f} "
+            f"[loyalty={ssv.loyalty:.2f}, shame={ssv.shame:.2f}, RT={ssv.RT:.2f}] "
+            f"computed {action} as most internally consistent given NSV."
+        )
+
     compiled_prompt = (
         f"[MoToMo-v4.2 | Deterministic Character Engine]\n"
         f"[Character: {character_name}]\n"
@@ -477,32 +581,32 @@ def build_ltx_prompt(
         f"[{beat_context}]\n\n"
         f"ACTION: {top_action['label']}\n\n"
         f"PERFORMANCE DIRECTIVES:\n"
-        f"- Posture: {postures[action]}\n"
-        f"- Voice: {vocal_tones[action]}\n"
+        f"- Posture: {perf['posture']}\n"
+        f"- Voice: {perf['voice']}\n"
         f"- Camera: {camera_specs[action]}\n"
-        f"- Pace: {'Very slow — weight in every word' if action == 'confront_married' else 'Medium — conversational rhythm'}\n"
-        f"- Emotion anchor: {'Obligation / Guilt / Relational gravity' if signal.wife_message_active else 'Desire / Risk / Excitement'}\n\n"
+        f"- Pace: {perf['pace']}\n"
+        f"{beat_line}"
+        f"- Gaze: {perf['gaze']}\n"
+        f"- Emotion anchor: {perf['emotion_anchor']}\n\n"
         f"INTERNAL STATE: {nsv_context}\n"
-        f"MoToMo score={top_action['score']:.3f} "
-        f"[loyalty={ssv.loyalty:.2f}, shame={ssv.shame:.2f}, RT={ssv.RT:.2f}] "
-        f"computed {action} as most internally consistent given NSV."
+        f"{audit_line}"
     )
-    
+
     negative_prompt = (
         "No improvisation outside computed action space. "
         "No contradictory emotional signals. "
         "No relaxed or casual demeanor. "
         "No breaking of deterministic character logic."
     )
-    
+
     return {
-        "compiled_prompt": compiled_prompt,
-        "negative_prompt": negative_prompt,
-        "camera": camera_specs[action],
-        "vocal_tone": vocal_tones[action],
-        "duration": 9 if action != "confront_married" else 12,
-        "aspect_ratio": "2.39:1",
-        "resolution": "1920x804",
+        "compiled_prompt":  compiled_prompt,
+        "negative_prompt":  negative_prompt,
+        "camera":           camera_specs[action],
+        "vocal_tone":       perf["voice"],
+        "duration":         9 if action != "confront_married" else 12,
+        "aspect_ratio":     "2.39:1",
+        "resolution":       "1920x804",
     }
 
 
