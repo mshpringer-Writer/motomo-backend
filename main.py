@@ -19,8 +19,9 @@ from typing import Optional
 from motomo_engine import (
     SSV, NSV, ExternalSignal,
     compute_rankings as _compute_rankings,
-    apply_nsv_update, build_ltx_prompt,
+    apply_nsv_update,
 )
+from motomo_integration_patch import build_ltx_prompt
 from motomo_cinematic_v2 import (
     CinematicEngine, PromptCompiler,
     FILTERS as DSV_FILTERS,
