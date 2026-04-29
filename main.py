@@ -382,16 +382,48 @@ def compute_override(req: OverrideRequest):
     tokens   = compiler.compile_render_tokens(decision)
     render   = compiler.compile_render_prompt(decision)
 
-    # ── Behavioral Compiler — runs on selected_action, not top-ranked ──────
-    _compiler_payload = {
+    # ── Behavioral Compiler — compile all candidate actions ────────────────
+    CANDIDATE_ACTIONS = ["confront_married", "change_subject", "flirt_no_commit"]
+
+    # Build score lookup from rankings
+    _, rb_full, _, _ = _run_scenario(ssv, req.wife_message_active, 0.75)
+    _scores = {r["action"]: r["score"] for r in rb_full}
+    _recommended_score = max(_scores.values())
+
+    action_outputs = {}
+    for _action_id in CANDIDATE_ACTIONS:
+        _action_score = _scores.get(_action_id, 0.0)
+        _action_gap   = round(max(0.0, _recommended_score - _action_score), 3)
+        _payload = {
+            "selected_action":   _action_id,
+            "score_gap":         _action_gap,
+            "ssv":               ssv_to_compiler_dict(ssv),
+            "nsv":               nsv_to_compiler_dict(nsv_b),
+            "world":             POC_WORLD,
+            "scene_affordances": POC_SCENE_BAR,
+        }
+        _c = compile_behavioral_spec(_payload, strict=False)
+        action_outputs[_action_id] = {
+            "action_id":          _action_id,
+            "score":              _action_score,
+            "score_gap":          _action_gap,
+            "behavioral_compiler":_c,
+            "render_lines":       _c["render_lines"],
+            "behavioral_tokens":  _c["behavioral_tokens"],
+            "pressure_band":      _c["pressure_band"],
+            "drivers":            _c["drivers"],
+            "debug":              _c["debug"],
+        }
+
+    # Also compile chosen_action separately for top-level fields
+    _compiled = compile_behavioral_spec({
         "selected_action":   req.chosen_action,
         "score_gap":         score_gap,
         "ssv":               ssv_to_compiler_dict(ssv),
         "nsv":               nsv_to_compiler_dict(nsv_b),
         "world":             POC_WORLD,
         "scene_affordances": POC_SCENE_BAR,
-    }
-    _compiled = compile_behavioral_spec(_compiler_payload, strict=False)
+    }, strict=False)
 
     # ── Build LTX prompt from chosen action ─────────────────────────────────
     ACTION_LABELS = {
@@ -451,7 +483,9 @@ def compute_override(req: OverrideRequest):
         "render_tokens":   tokens,
         "render_prompt":   render,
         "ltx_prompt":      override_header,
-        # ── Behavioral compiler output — selected_action ──────────────────
+        # ── Per-action compiler output (all candidate actions) ─────────────
+        "action_outputs":    action_outputs,
+        # ── Chosen action — top-level for frontend compatibility ─────────
         "behavioral_compiler": {
             "render_lines":      _compiled["render_lines"],
             "behavioral_tokens": _compiled["behavioral_tokens"],
@@ -459,7 +493,6 @@ def compute_override(req: OverrideRequest):
             "drivers":           _compiled["drivers"],
             "debug":             _compiled["debug"],
         },
-        # Top-level fields for frontend compatibility
         "render_lines":      _compiled["render_lines"],
         "behavioral_tokens": _compiled["behavioral_tokens"],
         "pressure_band":     _compiled["pressure_band"],
