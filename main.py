@@ -387,6 +387,20 @@ def compute_override(req: OverrideRequest):
         "label":  ACTION_LABELS.get(req.chosen_action, req.chosen_action),
         "score":  req.chosen_score,
     }
+  # ── Behavioral Compiler on selected_action (not top-ranked) ──
+        from motomo_integration_patch import (
+            ssv_to_compiler_dict, nsv_to_compiler_dict,
+            POC_WORLD, POC_SCENE_BAR, compile_behavioral_spec,
+        )
+        _compiler_payload = {
+            "selected_action":   req.chosen_action,
+            "score_gap":         score_gap,
+            "ssv":               ssv_to_compiler_dict(ssv),
+            "nsv":               nsv_to_compiler_dict(nsv_b),
+            "world":             POC_WORLD,
+            "scene_affordances": POC_SCENE_BAR,
+        }
+        _compiled = compile_behavioral_spec(_compiler_payload, strict=False)
 
     signal = ExternalSignal(
         wife_message_active=req.wife_message_active,
@@ -433,15 +447,16 @@ def compute_override(req: OverrideRequest):
         "render_prompt":   render,
         "ltx_prompt":      override_header,
       "behavioral_compiler": {
-            "render_lines":      ltx_chosen.get("render_lines", []),
-            "behavioral_tokens": ltx_chosen.get("behavioral_tokens", {}),
-            "pressure_band":     ltx_chosen.get("pressure_band", ""),
-            "drivers":           ltx_chosen.get("drivers", {}),
-            "debug": {
-                "selected_action":  req.chosen_action,
-                "compiler_version": "behavioral_compiler_v0.3.1",
-            },
+            "render_lines":      _compiled["render_lines"],
+            "behavioral_tokens": _compiled["behavioral_tokens"],
+            "pressure_band":     _compiled["pressure_band"],
+            "drivers":           _compiled["drivers"],
+            "debug":             _compiled["debug"],
         },
+        "render_lines":      _compiled["render_lines"],
+        "behavioral_tokens": _compiled["behavioral_tokens"],
+        "pressure_band":     _compiled["pressure_band"],
+        "drivers":           _compiled["drivers"],
         "cinematic_delta": {
             "framing":   {"angle": decision.framing.angle,
                           "composition": decision.framing.composition},
