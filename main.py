@@ -432,6 +432,16 @@ def compute_override(req: OverrideRequest):
         "render_tokens":   tokens,
         "render_prompt":   render,
         "ltx_prompt":      override_header,
+      "behavioral_compiler": {
+            "render_lines":      ltx_chosen.get("render_lines", []),
+            "behavioral_tokens": ltx_chosen.get("behavioral_tokens", {}),
+            "pressure_band":     ltx_chosen.get("pressure_band", ""),
+            "drivers":           ltx_chosen.get("drivers", {}),
+            "debug": {
+                "selected_action":  req.chosen_action,
+                "compiler_version": "behavioral_compiler_v0.3.1",
+            },
+        },
         "cinematic_delta": {
             "framing":   {"angle": decision.framing.angle,
                           "composition": decision.framing.composition},
