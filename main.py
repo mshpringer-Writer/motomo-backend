@@ -227,6 +227,33 @@ def compute_cinematic_ab(req: CinematicRequest):
     sb = {r["action"]: r["score"] for r in rb}
     deltas = {a: round(sb.get(a, 0) - sa.get(a, 0), 3) for a in sa}
 
+    # ── Behavioral Compiler — all candidate actions ────────────────────────
+    CANDIDATE_ACTIONS = ["confront_married", "change_subject", "flirt_no_commit"]
+    _scores_b = {r["action"]: r["score"] for r in rb}
+    _rec_score = max(_scores_b.values())
+    action_outputs = {}
+    for _action_id in CANDIDATE_ACTIONS:
+        _action_score = _scores_b.get(_action_id, 0.0)
+        _action_gap   = round(max(0.0, _rec_score - _action_score), 3)
+        _c = compile_behavioral_spec({
+            "selected_action":   _action_id,
+            "score_gap":         _action_gap,
+            "ssv":               ssv_to_compiler_dict(ssv),
+            "nsv":               nsv_to_compiler_dict(nsv_b),
+            "world":             POC_WORLD,
+            "scene_affordances": POC_SCENE_BAR,
+        }, strict=False)
+        action_outputs[_action_id] = {
+            "action_id":          _action_id,
+            "score":              _action_score,
+            "score_gap":          _action_gap,
+            "render_lines":       _c["render_lines"],
+            "behavioral_tokens":  _c["behavioral_tokens"],
+            "pressure_band":      _c["pressure_band"],
+            "drivers":            _c["drivers"],
+            "debug":              _c["debug"],
+        }
+
     return {
         "character":      req.character_name,
         "beat":           req.beat,
@@ -252,6 +279,7 @@ def compute_cinematic_ab(req: CinematicRequest):
         },
         "score_deltas":    deltas,
         "narrative_shift": f"{top_a['action']} → {top_b['action']}",
+        "action_outputs":  action_outputs,
         "cinematic_delta": {
             "human_explanation": human,
             "render_tokens":     tokens,
