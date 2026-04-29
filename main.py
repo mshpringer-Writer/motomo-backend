@@ -6,6 +6,7 @@ Endpoints:
   POST /compute-ab            — action rankings A/B (no cinematic layer)
   POST /compute-cinematic-ab  — full pipeline: rankings + v2 cinematic delta
   POST /generate              — fal.ai LTX video generation (A/B)
+  POST /compute-override      — creator override with behavioral compiler
 """
 
 import os
@@ -21,7 +22,14 @@ from motomo_engine import (
     compute_rankings as _compute_rankings,
     apply_nsv_update,
 )
-from motomo_integration_patch import build_ltx_prompt
+from motomo_integration_patch import (
+    build_ltx_prompt,
+    ssv_to_compiler_dict,
+    nsv_to_compiler_dict,
+    POC_WORLD,
+    POC_SCENE_BAR,
+    compile_behavioral_spec,
+)
 from motomo_cinematic_v2 import (
     CinematicEngine, PromptCompiler,
     FILTERS as DSV_FILTERS,
@@ -74,7 +82,6 @@ class CinematicRequest(BaseModel):
     filter_name:           str   = "DISSOLVE"
     flirtation_intensity:  float = 0.75
 
-# For fal.ai video generation
 class LTXPackage(BaseModel):
     compiled_prompt:  str
     negative_prompt:  str
@@ -95,6 +102,18 @@ class GenerateRequest(BaseModel):
     scene_description: str
     scenario_a:        NSVScenario
     scenario_b:        NSVScenario
+
+class OverrideRequest(BaseModel):
+    character_name:      str   = "Uri — The Wounded Loyalist"
+    beat:                str   = "Beat 7 — Bar, Late Evening"
+    scene_description:   str   = "Maya invites him home"
+    ssv:                 SSVInput
+    filter_name:         str   = "DISSOLVE"
+    wife_message_active: bool  = False
+    chosen_action:       str
+    top_action:          str
+    top_score:           float
+    chosen_score:        float
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -140,15 +159,15 @@ def compute_ab(req: CinematicRequest):
 
     sa = {r["action"]: r["score"] for r in ra}
     sb = {r["action"]: r["score"] for r in rb}
-    deltas = {a: round(sb.get(a,0) - sa.get(a,0), 3) for a in sa}
+    deltas = {a: round(sb.get(a, 0) - sa.get(a, 0), 3) for a in sa}
 
     return {
         "character": req.character_name,
         "beat":      req.beat,
         "scenario_a": {
             "label": "No wife message",
-            "nsv":   {"E": round(nsv_a.E,3), "C": round(nsv_a.C,3),
-                      "R": round(nsv_a.R,3), "P": round(nsv_a.P,3)},
+            "nsv":   {"E": round(nsv_a.E, 3), "C": round(nsv_a.C, 3),
+                      "R": round(nsv_a.R, 3), "P": round(nsv_a.P, 3)},
             "rankings":   ra,
             "top_action": top_a["action"],
             "top_score":  top_a["score"],
@@ -156,8 +175,8 @@ def compute_ab(req: CinematicRequest):
         },
         "scenario_b": {
             "label": "Wife message arrives",
-            "nsv":   {"E": round(nsv_b.E,3), "C": round(nsv_b.C,3),
-                      "R": round(nsv_b.R,3), "P": round(nsv_b.P,3)},
+            "nsv":   {"E": round(nsv_b.E, 3), "C": round(nsv_b.C, 3),
+                      "R": round(nsv_b.R, 3), "P": round(nsv_b.P, 3)},
             "rankings":   rb,
             "top_action": top_b["action"],
             "top_score":  top_b["score"],
@@ -187,15 +206,13 @@ def compute_cinematic_ab(req: CinematicRequest):
     ra, nsv_a, top_a, ltx_a = _run_scenario(ssv, False, req.flirtation_intensity)
     rb, nsv_b, top_b, ltx_b = _run_scenario(ssv, True,  req.flirtation_intensity)
 
-    # v2 cinematic delta
-    cin_a = CinNSV(E=nsv_a.E, C=nsv_a.C, R=nsv_a.R, P=nsv_a.P)
-    cin_b = CinNSV(E=nsv_b.E, C=nsv_b.C, R=nsv_b.R, P=nsv_b.P)
+    cin_a    = CinNSV(E=nsv_a.E, C=nsv_a.C, R=nsv_a.R, P=nsv_a.P)
+    cin_b    = CinNSV(E=nsv_b.E, C=nsv_b.C, R=nsv_b.R, P=nsv_b.P)
     decision = engine.build_decision(cin_a, cin_b, dsv, base)
     tokens   = compiler.compile_render_tokens(decision)
     human    = compiler.compile_human(decision)
     render   = compiler.compile_render_prompt(decision)
 
-    # Enrich LTX prompts with cinematic layer
     ltx_a_enriched = ltx_a["compiled_prompt"] + (
         f"\n\n[{fname} — SCENARIO A]\n"
         f"{', '.join(dsv.anchor_tokens)}\n"
@@ -208,18 +225,17 @@ def compute_cinematic_ab(req: CinematicRequest):
 
     sa = {r["action"]: r["score"] for r in ra}
     sb = {r["action"]: r["score"] for r in rb}
-    deltas = {a: round(sb.get(a,0) - sa.get(a,0), 3) for a in sa}
+    deltas = {a: round(sb.get(a, 0) - sa.get(a, 0), 3) for a in sa}
 
     return {
         "character":      req.character_name,
         "beat":           req.beat,
         "filter":         fname,
         "filter_tagline": FILTER_TAGLINES[fname],
-
         "scenario_a": {
             "label":      "No wife message",
-            "nsv":        {"E":round(nsv_a.E,3),"C":round(nsv_a.C,3),
-                           "R":round(nsv_a.R,3),"P":round(nsv_a.P,3)},
+            "nsv":        {"E": round(nsv_a.E, 3), "C": round(nsv_a.C, 3),
+                           "R": round(nsv_a.R, 3), "P": round(nsv_a.P, 3)},
             "rankings":   ra,
             "top_action": top_a["action"],
             "top_score":  top_a["score"],
@@ -227,17 +243,15 @@ def compute_cinematic_ab(req: CinematicRequest):
         },
         "scenario_b": {
             "label":      "Wife message arrives",
-            "nsv":        {"E":round(nsv_b.E,3),"C":round(nsv_b.C,3),
-                           "R":round(nsv_b.R,3),"P":round(nsv_b.P,3)},
+            "nsv":        {"E": round(nsv_b.E, 3), "C": round(nsv_b.C, 3),
+                           "R": round(nsv_b.R, 3), "P": round(nsv_b.P, 3)},
             "rankings":   rb,
             "top_action": top_b["action"],
             "top_score":  top_b["score"],
             "ltx_prompt": ltx_b_enriched,
         },
-
         "score_deltas":    deltas,
         "narrative_shift": f"{top_a['action']} → {top_b['action']}",
-
         "cinematic_delta": {
             "human_explanation": human,
             "render_tokens":     tokens,
@@ -284,41 +298,35 @@ async def generate(req: GenerateRequest):
             return fal_client.run(
                 "fal-ai/ltx-video",
                 arguments={
-                    "prompt":           scenario.ltx_package.compiled_prompt,
-                    "negative_prompt":  scenario.ltx_package.negative_prompt,
-                    "num_frames":       int(scenario.ltx_package.duration * 25),
+                    "prompt":              scenario.ltx_package.compiled_prompt,
+                    "negative_prompt":     scenario.ltx_package.negative_prompt,
+                    "num_frames":          int(scenario.ltx_package.duration * 25),
                     "width": w, "height": h,
-                    "guidance_scale":   3.5,
+                    "guidance_scale":      3.5,
                     "num_inference_steps": 40,
                     "seed": 42,
                 }
             )
         loop   = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _call)
-        return {"label": scenario.label, "video_url": result["video"]["url"],
-                "action": scenario.ltx_package.action}
+        return {
+            "label":     scenario.label,
+            "video_url": result["video"]["url"],
+            "action":    scenario.ltx_package.action,
+        }
 
     try:
         a, b = await asyncio.gather(gen_one(req.scenario_a), gen_one(req.scenario_b))
     except Exception as e:
         raise HTTPException(500, str(e))
 
-    return {"character": req.character_name, "beat": req.beat,
-            "scenario_a": a, "scenario_b": b,
-            "narrative_shift": f"{a['action']} → {b['action']}"}
-# ─── Override Endpoint ────────────────────────────────────────────────────────
-
-class OverrideRequest(BaseModel):
-    character_name:      str   = "Uri — The Wounded Loyalist"
-    beat:                str   = "Beat 7 — Bar, Late Evening"
-    scene_description:   str   = "Maya invites him home"
-    ssv:                 SSVInput
-    filter_name:         str   = "DISSOLVE"
-    wife_message_active: bool  = False
-    chosen_action:       str
-    top_action:          str
-    top_score:           float
-    chosen_score:        float
+    return {
+        "character":       req.character_name,
+        "beat":            req.beat,
+        "scenario_a":      a,
+        "scenario_b":      b,
+        "narrative_shift": f"{a['action']} → {b['action']}",
+    }
 
 
 @app.post("/compute-override")
@@ -326,9 +334,9 @@ def compute_override(req: OverrideRequest):
     score_gap = round(req.top_score - req.chosen_score, 3)
 
     if score_gap > 0.40:
-        level          = "red"
-        forced_filter  = "SIGNAL"
-        warning        = (
+        level         = "red"
+        forced_filter = "SIGNAL"
+        warning       = (
             f"This action exceeds the character's computed threshold by {score_gap:.3f}. "
             f"Engine recommended '{req.top_action}' ({req.top_score:.3f}). "
             f"Choosing '{req.chosen_action}' ({req.chosen_score:.3f}) is a character rupture."
@@ -340,9 +348,9 @@ def compute_override(req: OverrideRequest):
             "Delayed reframe on the moment of decision."
         )
     elif score_gap > 0.20:
-        level          = "yellow"
-        forced_filter  = req.filter_name.upper()
-        warning        = (
+        level         = "yellow"
+        forced_filter = req.filter_name.upper()
+        warning       = (
             f"Borderline action. Gap: {score_gap:.3f}. "
             f"Engine preferred '{req.top_action}' ({req.top_score:.3f}). "
             f"'{req.chosen_action}' ({req.chosen_score:.3f}) is plausible with intention."
@@ -352,9 +360,9 @@ def compute_override(req: OverrideRequest):
             "Slightly harder contrast, longer hold post-action."
         )
     else:
-        level          = "green"
-        forced_filter  = req.filter_name.upper()
-        warning        = (
+        level         = "green"
+        forced_filter = req.filter_name.upper()
+        warning       = (
             f"Action within acceptable range. Gap: {score_gap:.3f}. "
             f"Override is minimal — character logic holds."
         )
@@ -374,7 +382,18 @@ def compute_override(req: OverrideRequest):
     tokens   = compiler.compile_render_tokens(decision)
     render   = compiler.compile_render_prompt(decision)
 
-    # ── Build prompt from CHOSEN action — not recommended ──
+    # ── Behavioral Compiler — runs on selected_action, not top-ranked ──────
+    _compiler_payload = {
+        "selected_action":   req.chosen_action,
+        "score_gap":         score_gap,
+        "ssv":               ssv_to_compiler_dict(ssv),
+        "nsv":               nsv_to_compiler_dict(nsv_b),
+        "world":             POC_WORLD,
+        "scene_affordances": POC_SCENE_BAR,
+    }
+    _compiled = compile_behavioral_spec(_compiler_payload, strict=False)
+
+    # ── Build LTX prompt from chosen action ─────────────────────────────────
     ACTION_LABELS = {
         "accept_invitation": "Accept invitation",
         "flirt_no_commit":   "Flirt without commitment",
@@ -387,21 +406,6 @@ def compute_override(req: OverrideRequest):
         "label":  ACTION_LABELS.get(req.chosen_action, req.chosen_action),
         "score":  req.chosen_score,
     }
-  # ── Behavioral Compiler on selected_action (not top-ranked) ──
- from motomo_integration_patch import (
-    ssv_to_compiler_dict, nsv_to_compiler_dict,
-    POC_WORLD, POC_SCENE_BAR, compile_behavioral_spec,
-      
-        )
-        _compiler_payload = {
-            "selected_action":   req.chosen_action,
-            "score_gap":         score_gap,
-            "ssv":               ssv_to_compiler_dict(ssv),
-            "nsv":               nsv_to_compiler_dict(nsv_b),
-            "world":             POC_WORLD,
-            "scene_affordances": POC_SCENE_BAR,
-        }
-        _compiled = compile_behavioral_spec(_compiler_payload, strict=False)
 
     signal = ExternalSignal(
         wife_message_active=req.wife_message_active,
@@ -409,16 +413,16 @@ def compute_override(req: OverrideRequest):
     )
 
     ltx_chosen = build_ltx_prompt(
-    req.character_name,
-    chosen_action_obj,
-    ssv,
-    nsv_b,
-    signal,
-    req.scene_description,
-    score_gap=score_gap,
-    selection_type="override",
-    recommended_action={"action": req.top_action, "score": req.top_score},
-)
+        req.character_name,
+        chosen_action_obj,
+        ssv,
+        nsv_b,
+        signal,
+        req.scene_description,
+        score_gap=score_gap,
+        selection_type="override",
+        recommended_action={"action": req.top_action, "score": req.top_score},
+    )
 
     override_header = (
         f"[MOTOMO OVERRIDE — {level.upper()}]\n"
@@ -447,13 +451,15 @@ def compute_override(req: OverrideRequest):
         "render_tokens":   tokens,
         "render_prompt":   render,
         "ltx_prompt":      override_header,
-      "behavioral_compiler": {
+        # ── Behavioral compiler output — selected_action ──────────────────
+        "behavioral_compiler": {
             "render_lines":      _compiled["render_lines"],
             "behavioral_tokens": _compiled["behavioral_tokens"],
             "pressure_band":     _compiled["pressure_band"],
             "drivers":           _compiled["drivers"],
             "debug":             _compiled["debug"],
         },
+        # Top-level fields for frontend compatibility
         "render_lines":      _compiled["render_lines"],
         "behavioral_tokens": _compiled["behavioral_tokens"],
         "pressure_band":     _compiled["pressure_band"],
