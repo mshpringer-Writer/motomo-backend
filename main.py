@@ -388,9 +388,10 @@ def compute_override(req: OverrideRequest):
         "score":  req.chosen_score,
     }
   # ── Behavioral Compiler on selected_action (not top-ranked) ──
-        from motomo_integration_patch import (
-            ssv_to_compiler_dict, nsv_to_compiler_dict,
-            POC_WORLD, POC_SCENE_BAR, compile_behavioral_spec,
+ from motomo_integration_patch import (
+    ssv_to_compiler_dict, nsv_to_compiler_dict,
+    POC_WORLD, POC_SCENE_BAR, compile_behavioral_spec,
+      
         )
         _compiler_payload = {
             "selected_action":   req.chosen_action,
