@@ -1,5 +1,5 @@
 """
-MoToMo Behavioral Translation Layer — v0.3.1
+MoToMo Behavioral Translation Layer — v0.3.2
 Spec: MoToMo_Behavioral_Translation_Layer___Spec_v01_280426.pdf
 
 Changelog from v0.2:
@@ -21,7 +21,7 @@ Changelog from v0.2:
 from __future__ import annotations
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
-COMPILER_VERSION = "behavioral_compiler_v0.3.1"
+COMPILER_VERSION = "behavioral_compiler_v0.3.2"
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +544,33 @@ RENDER_ORDER: List[str] = [
 OMIT_NONE_CHANNELS = {"object_interaction"}
 
 
-def tokens_to_render_lines(tokens: Mapping[str, str]) -> List[str]:
+# Action-specific text overrides for channels where the default text
+# is written for flirt/approach but the action is avoidance/deflect.
+ACTION_TEXT_OVERRIDES: Dict[str, Dict[str, Dict[str, str]]] = {
+    "change_subject": {
+        "gaze_contact": {
+            "intermittent": "He meets her gaze briefly, then looks away, signaling no invitation.",
+            "brief":        "His gaze lands on her for a moment, then moves away without holding.",
+        },
+        "torso_openness": {
+            "partial": "He turns just enough to acknowledge her, but keeps most of his body oriented back toward the bar.",
+        },
+    },
+    "withdraw": {
+        "gaze_contact": {
+            "intermittent": "He glances at her briefly, then looks away.",
+            "brief":        "He barely meets her eyes before looking away.",
+        },
+        "torso_openness": {
+            "partial": "His body stays angled away, only half-acknowledging her presence.",
+        },
+    },
+}
+
+
+def tokens_to_render_lines(tokens: Mapping[str, str],
+                            action: str = "") -> List[str]:
+    overrides = ACTION_TEXT_OVERRIDES.get(action, {})
     lines: List[str] = []
     for channel in RENDER_ORDER:
         value = tokens.get(channel)
@@ -552,7 +578,8 @@ def tokens_to_render_lines(tokens: Mapping[str, str]) -> List[str]:
             continue
         if value == "none" and channel in OMIT_NONE_CHANNELS:
             continue
-        text = TOKEN_TEXT_MAP.get(channel, {}).get(value, "")
+        # Use action-specific override if available, else fall back to global map
+        text = overrides.get(channel, {}).get(value) or TOKEN_TEXT_MAP.get(channel, {}).get(value, "")
         if text:
             lines.append(text)
     return lines
@@ -601,7 +628,7 @@ def compile_behavioral_spec(
     drivers       = compute_behavioral_drivers(ssv, nsv, world, action_meta, score_gap)
     pressure_band = resolve_pressure_band(drivers["pressure"], selected_action)
     tokens        = compiler_fn(drivers, scene_affordances, pressure_band)
-    render_lines  = tokens_to_render_lines(tokens)
+    render_lines  = tokens_to_render_lines(tokens, action=selected_action)
 
     return {
         "drivers":           drivers,
